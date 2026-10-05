@@ -117,12 +117,12 @@
         </label>
       </div>
       <div class="erow ehead" aria-hidden="true">
-        <span>類型</span><span>名稱</span><span>分類</span><span>現值（萬）</span><span>成本（萬）</span><span>每月（元）</span><span></span>
+        <span>類型</span><span>名稱</span><span>分類</span><span>現值（萬）</span><span>成本（萬）</span><span>年利率（%）</span><span>每月（元）</span><span></span>
       </div>
       <div id="rows"></div>
       <datalist id="catList"></datalist>
       <button type="button" class="btn small" id="addRowBtn">＋ 新增一列</button>
-      <p class="muted tip">成本、每月可不填；有填成本，才會算投資損益。金額單位是「萬」，可以填小數（例如 7.8813）。</p>
+      <p class="muted tip">成本、年利率、每月可不填；有填成本，才會算投資損益；貸款填了「年利率」和「每月還款」，每月 5 號登入時會自動推算剩餘負債。金額單位是「萬」，可以填小數（例如 7.8813）。</p>
       <div class="actions">
         <button type="button" class="btn" id="cancelBtn">取消</button>
         <button type="submit" class="btn primary" id="saveBtn">儲存</button>

@@ -133,7 +133,7 @@ dialog input:focus, dialog select:focus { outline: none; border-color: var(--acc
 dialog.wide { width: min(96vw, 900px); max-height: 92vh; overflow-y: auto; }
 dialog p { margin: 0 0 12px; }
 .dlg-top { display: grid; grid-template-columns: 180px 1fr; gap: 12px; }
-.erow { display: grid; grid-template-columns: 78px 1.3fr 1fr 1fr 1fr 1fr 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.erow { display: grid; grid-template-columns: 78px 1.3fr 1fr 1fr 1fr .9fr 1fr 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
 .erow input, .erow select { margin-top: 0; padding: 8px 10px; font-size: .92rem; min-width: 0; }
 .ehead { font-size: .75rem; color: var(--muted); letter-spacing: .08em; margin-bottom: 2px; }
 .r-del { color: var(--muted); }

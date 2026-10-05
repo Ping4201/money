@@ -78,6 +78,7 @@ async function enterApp() {
     await refresh(false);
     $("app").hidden = $("backup").hidden = $("topActions").hidden = false;
     setStatus("");
+    await autoCatchUp();
   } catch (e) {
     // 登入成功但讀不到資料：多半是這個 Email 不在家人名單
     await Storage.signOut();
@@ -85,6 +86,51 @@ async function enterApp() {
     $("loginError").textContent = "無法讀取資料：請確認這個 Email 已被加入家人名單。（" + errText(e) + "）";
     $("loginError").hidden = false;
     setStatus("");
+  }
+}
+
+/* ---------- 每月 5 號自動推算貸款剩餘負債 ---------- */
+const AUTO_TAG = "【自動】";
+const LOAN_DAY = 5;
+
+// 貸款過一個月：先計一個月利息，再扣掉當月還款（本息平均攤還的常見算法）
+function nextBalance(e) {
+  return Math.max(0, Math.round(e.value * (1 + e.rate / 100 / 12) - e.monthly));
+}
+const canAmortize = (e) => e.kind === "debt" && e.rate !== null && e.rate !== undefined && e.monthly !== null && e.value > 0;
+
+// 從 base 這筆之後、到 todayStr 為止，每個「5 號」各產生一筆：貸款往前推一個月，其他項目沿用上一筆
+function buildAutoSnapshots(base, todayStr) {
+  if (!base || !base.entries.some(canAmortize)) return [];
+  const out = [];
+  let prev = base;
+  let [y, m] = base.date.split("-").map(Number);
+  m -= 1; // 轉成 0 起算的月份
+  for (let i = 0; i < 36; i++, m++) { // 最多補 36 個月，避免久未使用時一次產生太多
+    const d = Storage.localDate(new Date(y, m, LOAN_DAY));
+    if (d > todayStr) break;
+    if (d <= prev.date) continue;
+    const snap = {
+      date: d,
+      note: `${AUTO_TAG}貸款依利率與每月還款推算；其他項目沿用上次數字，請記得更新`,
+      entries: prev.entries.map((e) => ({ ...e, id: crypto.randomUUID(), value: canAmortize(e) ? nextBalance(e) : e.value }))
+    };
+    out.push(snap);
+    prev = snap;
+  }
+  return out;
+}
+
+async function autoCatchUp() {
+  const added = buildAutoSnapshots(latest(), today());
+  if (!added.length) return;
+  try {
+    await Storage.addIfMissing(added);
+    await refresh(true);
+    setStatus(`已自動補上 ${added.length} 筆每月 ${LOAN_DAY} 號的貸款更新`);
+    setTimeout(() => setStatus(""), 8000);
+  } catch (e) {
+    console.warn("自動補算失敗（不影響使用）", e);
   }
 }
 
@@ -159,6 +205,7 @@ function rowHtml(e) {
     <input class="r-cat" list="catList" maxlength="12" placeholder="分類" aria-label="分類" value="${esc(e.category || "")}">
     <input class="r-val" type="number" min="0" step="any" inputmode="decimal" placeholder="現值（萬）" aria-label="現值（萬）" value="${wan(e.value)}">
     <input class="r-cost" type="number" min="0" step="any" inputmode="decimal" placeholder="成本（萬）" aria-label="成本（萬，選填）" value="${wan(e.cost)}">
+    <input class="r-rate" type="number" min="0" max="100" step="any" inputmode="decimal" placeholder="年利率（%）" aria-label="貸款年利率（%，選填，填了才會每月5號自動推算）" value="${e.rate === null || e.rate === undefined ? "" : e.rate}">
     <input class="r-mon" type="number" min="0" step="1" inputmode="numeric" placeholder="每月（元）" aria-label="每月投入或還款（元，選填）" value="${e.monthly === null || e.monthly === undefined ? "" : e.monthly}">
     <button type="button" class="icon-btn r-del" aria-label="刪除這一列">✕</button>
   </div>`;
@@ -204,13 +251,17 @@ async function onSubmit(e) {
     if (c !== null && (!Number.isFinite(c) || c < 0 || c > MAXW)) return alert(`${label}（${name}）：成本填法不正確。`);
     const m = monStr === "" ? null : Number(monStr);
     if (m !== null && (!Number.isFinite(m) || m < 0)) return alert(`${label}（${name}）：每月金額填法不正確。`);
+    const rateStr = q(".r-rate");
+    const rt = rateStr === "" ? null : Number(rateStr);
+    if (rt !== null && (!Number.isFinite(rt) || rt < 0 || rt > 100)) return alert(`${label}（${name}）：年利率請填 0 到 100 之間的數字。`);
     const kind = q(".r-kind");
     entries.push({
       id: crypto.randomUUID(), name, kind,
       category: q(".r-cat") || (kind === "debt" ? "其他負債" : "其他"),
       value: Math.round(v * 10000),
       cost: c === null ? null : Math.round(c * 10000),
-      monthly: m === null ? null : Math.round(m)
+      monthly: m === null ? null : Math.round(m),
+      rate: rt
     });
   }
   if (!entries.length) return alert("至少要有一列項目。");
@@ -295,6 +346,7 @@ function renderList() {
       const pl = e.value - e.cost;
       bits.push(`成本 ${fmt(e.cost)}`, `<b class="${pl >= 0 ? "up" : "down"}">${e.cost ? ((pl / e.cost) * 100).toFixed(1) : "0.0"}%</b>`);
     }
+    if (e.rate !== null && e.rate !== undefined) bits.push(`年利率 ${e.rate}%`);
     if (e.monthly !== null) bits.push(`每月${e.kind === "debt" ? "還" : "+"}${e.monthly.toLocaleString("zh-TW")}`);
     return `<li class="item">
       <div class="dot" style="background:${c}33;color:${c}">${esc(e.category.slice(0, 1))}</div>

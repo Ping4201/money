@@ -5,6 +5,7 @@
 // 資料格式 v2：依日期的「快照」，每次記錄一份當天的資產負債。
 // { version: 2, snapshots: [ { date, note, entries: [ { id, name, kind, category, value, cost, monthly } ] } ] }
 //   value = 現值（元）　cost = 成本（元，可空）　monthly = 每月投入／還款（元，可空）
+//   rate = 年利率 %（貸款用，可空；有填才會在每月 5 號自動推算剩餘負債）
 const Storage = {
   MAX_AMOUNT: 1e12, // 單筆金額上限：一兆
 
@@ -29,8 +30,16 @@ const Storage = {
       category: (typeof e.category === "string" && e.category.trim() ? e.category.trim() : kind === "debt" ? "其他負債" : "其他").slice(0, 12),
       value: this._money(e.value),
       cost: this._money(e.cost, true),
-      monthly: this._money(e.monthly, true)
+      monthly: this._money(e.monthly, true),
+      rate: this._rate(e.rate)
     };
+  },
+
+  // 年利率（%），例如 2.185；沒填或不合理就當作沒有
+  _rate(v) {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
   },
 
   // 把任何來源的資料（v2、舊版 v1）整理成安全的 v2 格式
@@ -91,6 +100,13 @@ const Storage = {
   async saveMany(snaps) {
     const rows = snaps.map((s) => ({ date: s.date, note: s.note, entries: s.entries }));
     const { error } = await this.client.from("snapshots").upsert(rows);
+    if (error) throw error;
+  },
+
+  // 自動補算專用：同一天已經有紀錄就略過，絕不覆蓋人工輸入的資料
+  async addIfMissing(snaps) {
+    const rows = snaps.map((s) => ({ date: s.date, note: s.note, entries: s.entries }));
+    const { error } = await this.client.from("snapshots").upsert(rows, { onConflict: "date", ignoreDuplicates: true });
     if (error) throw error;
   },
 
