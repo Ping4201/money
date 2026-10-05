@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>暖暖家計簿</title>
+  <link rel="icon" href="images/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <img src="images/logo.svg" alt="雙手捧著硬幣的圖示" class="logo">
+    <div>
+      <h1>暖暖家計簿</h1>
+      <p class="sub">HOME LEDGER</p>
+    </div>
+    <button class="btn primary" id="addBtn">＋ 新增紀錄</button>
+  </header>
+
+  <main>
+    <div id="empty" class="panel empty" hidden>
+      <p>還沒有任何紀錄喔～<br>按右上角「＋ 新增紀錄」開始，<br>或到最下方「匯入備份」帶入舊資料。</p>
+      <button class="btn" id="sampleBtn">載入範例資料看看</button>
+    </div>
+
+    <section class="snapbar" id="snapbar" hidden>
+      <label>檢視日期
+        <select id="snapSelect"></select>
+      </label>
+      <span class="muted" id="snapCount"></span>
+      <span class="muted" id="snapNote2"></span>
+      <div class="snapbtns">
+        <button class="btn small" id="editBtn">編輯這筆</button>
+        <button class="btn small" id="delBtn">刪除這筆</button>
+      </div>
+    </section>
+
+    <section class="cards" id="cards" aria-label="總覽"></section>
+
+    <section class="charts">
+      <div class="panel">
+        <h2>資產分布</h2>
+        <div id="donut" class="chart"></div>
+        <ul id="legend" class="legend"></ul>
+      </div>
+      <div class="panel">
+        <h2>資產與負債趨勢</h2>
+        <div id="trend" class="chart"></div>
+        <ul id="trendLegend" class="legend inline"></ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>資產分布變化</h2>
+      <div id="stack" class="chart"></div>
+      <ul id="stackLegend" class="legend inline"></ul>
+      <p class="muted tip">點圖上的點或長條，可以切換到那一天。</p>
+    </section>
+
+    <section class="panel">
+      <div class="list-head">
+        <h2>當天明細</h2>
+        <div class="tabs" id="tabs">
+          <button data-filter="all" class="on">全部</button>
+          <button data-filter="asset">資產</button>
+          <button data-filter="debt">負債</button>
+        </div>
+      </div>
+      <ul id="list" class="list"></ul>
+    </section>
+  </main>
+
+  <section class="backup">
+    <p>⚠️ 資料只存在這台裝置的瀏覽器裡。清除瀏覽器資料或換裝置就會消失，請定期備份。</p>
+    <div>
+      <button class="btn" id="exportBtn">匯出備份</button>
+      <button class="btn" id="importBtn">匯入備份</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+  </section>
+
+  <footer>本工具僅供記帳參考，不構成理財建議。</footer>
+
+  <dialog id="dlg" class="wide">
+    <form method="dialog" id="form">
+      <h3 id="dlgTitle">新增紀錄</h3>
+      <p class="muted" id="dlgHint"></p>
+      <div class="dlg-top">
+        <label>日期
+          <input type="date" id="snapDate" required>
+        </label>
+        <label>備註（選填）
+          <input id="snapNote" maxlength="100" placeholder="例如：領年終、買了房">
+        </label>
+      </div>
+      <div class="erow ehead" aria-hidden="true">
+        <span>類型</span><span>名稱</span><span>分類</span><span>現值（萬）</span><span>成本（萬）</span><span>每月（元）</span><span></span>
+      </div>
+      <div id="rows"></div>
+      <datalist id="catList"></datalist>
+      <button type="button" class="btn small" id="addRowBtn">＋ 新增一列</button>
+      <p class="muted tip">成本、每月可不填；有填成本，才會算投資損益。金額單位是「萬」，可以填小數（例如 7.8813）。</p>
+      <div class="actions">
+        <button type="button" class="btn" id="cancelBtn">取消</button>
+        <button type="submit" class="btn primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="js/storage.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
