@@ -51,16 +51,81 @@ function totals(snap) {
   return t;
 }
 
+const setStatus = (msg) => { $("status").textContent = msg || ""; $("status").hidden = !msg; };
+const errText = (e) => (e && e.message) || String(e);
+
 async function init() {
-  state = await Storage.load();
-  selected = latest() ? latest().date : null;
   bindEvents();
+  Storage.init();
+  if (await Storage.getUser()) await enterApp();
+  else showLogin();
+  // 回到這個分頁時，重新讀取，看到家人剛改的內容
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !$("app").hidden && !$("dlg").open) refresh(true);
+  });
+}
+
+function showLogin() {
+  $("app").hidden = $("backup").hidden = $("topActions").hidden = true;
+  $("login").hidden = false;
+  setStatus("");
+}
+
+async function enterApp() {
+  $("login").hidden = true;
+  setStatus("讀取中…");
+  try {
+    await refresh(false);
+    $("app").hidden = $("backup").hidden = $("topActions").hidden = false;
+    setStatus("");
+  } catch (e) {
+    // 登入成功但讀不到資料：多半是這個 Email 不在家人名單
+    await Storage.signOut();
+    showLogin();
+    $("loginError").textContent = "無法讀取資料：請確認這個 Email 已被加入家人名單。（" + errText(e) + "）";
+    $("loginError").hidden = false;
+    setStatus("");
+  }
+}
+
+async function refresh(quiet) {
+  try {
+    state = await Storage.load();
+  } catch (e) {
+    if (quiet) return; // 背景更新失敗就維持畫面不動
+    throw e;
+  }
+  if (!snapOf(selected)) selected = latest() ? latest().date : null;
   render();
 }
 
+async function onLogin(e) {
+  e.preventDefault();
+  $("loginError").hidden = true;
+  $("loginBtn").disabled = true;
+  try {
+    await Storage.signIn($("loginEmail").value.trim(), $("loginPass").value);
+    $("loginPass").value = "";
+    await enterApp();
+  } catch (err) {
+    $("loginError").textContent = "登入失敗：Email 或密碼不正確。";
+    $("loginError").hidden = false;
+  } finally {
+    $("loginBtn").disabled = false;
+  }
+}
+
+async function onLogout() {
+  await Storage.signOut();
+  state = { version: 2, snapshots: [] };
+  selected = null;
+  showLogin();
+}
+
 function bindEvents() {
+  $("loginForm").onsubmit = onLogin;
+  $("logoutBtn").onclick = onLogout;
   $("addBtn").onclick = () => openEditor(null);
-  $("sampleBtn").onclick = loadSample;
   $("snapSelect").onchange = (e) => { selected = e.target.value; render(); };
   $("editBtn").onclick = () => openEditor(selected);
   $("delBtn").onclick = removeSnapshot;
@@ -150,34 +215,35 @@ async function onSubmit(e) {
   }
   if (!entries.length) return alert("至少要有一列項目。");
   if (date !== editingDate && snapOf(date) && !confirm(`${date} 已經有一筆紀錄，要用這次的內容取代嗎？`)) return;
+  const snap = { date, note: $("snapNote").value.trim(), entries };
+  $("saveBtn").disabled = true;
+  try {
+    await Storage.saveSnapshot(snap);
+    // 改了日期：舊日期那筆要刪掉（日期是唯一識別）
+    if (editingDate && editingDate !== date) await Storage.deleteSnapshot(editingDate);
+  } catch (err) {
+    return alert("儲存失敗，資料沒有變動：" + errText(err));
+  } finally {
+    $("saveBtn").disabled = false;
+  }
   state.snapshots = state.snapshots.filter((s) => s.date !== editingDate && s.date !== date);
-  state.snapshots.push({ date, note: $("snapNote").value.trim(), entries });
+  state.snapshots.push(snap);
   state.snapshots.sort((a, b) => a.date.localeCompare(b.date));
   selected = date;
   $("dlg").close();
-  await commit();
-}
-
-async function removeSnapshot() {
-  if (!selected || !confirm(`確定要刪除 ${selected} 這一筆紀錄嗎？`)) return;
-  state.snapshots = state.snapshots.filter((s) => s.date !== selected);
-  selected = latest() ? latest().date : null;
-  await commit();
-}
-
-async function commit() {
-  await Storage.save(state);
   render();
 }
 
-async function loadSample() {
-  const mk = (kind, name, category, value, cost = null, monthly = null) => ({ id: crypto.randomUUID(), kind, name, category, value: value * 10000, cost: cost === null ? null : cost * 10000, monthly });
-  state.snapshots = [
-    { date: "2026-01-01", note: "範例", entries: [mk("asset", "定存", "存款", 20), mk("asset", "股票", "台股", 90, 80, 10000), mk("debt", "房貸", "房貸", 600, null, 20000)] },
-    { date: "2026-04-01", note: "範例", entries: [mk("asset", "定存", "存款", 25), mk("asset", "股票", "台股", 105, 90, 10000), mk("asset", "美股", "美股", 30, 28), mk("debt", "房貸", "房貸", 595, null, 20000)] }
-  ];
-  selected = "2026-04-01";
-  await commit();
+async function removeSnapshot() {
+  if (!selected || !confirm(`確定要刪除 ${selected} 這一筆紀錄嗎？家人也會看不到。`)) return;
+  try {
+    await Storage.deleteSnapshot(selected);
+  } catch (err) {
+    return alert("刪除失敗，資料沒有變動：" + errText(err));
+  }
+  state.snapshots = state.snapshots.filter((s) => s.date !== selected);
+  selected = latest() ? latest().date : null;
+  render();
 }
 
 /* ---------- 畫面 ---------- */
@@ -368,13 +434,13 @@ async function importBackup(e) {
   try {
     const data = Storage.normalize(JSON.parse(await file.text()));
     if (!data.snapshots.length) throw new Error("empty");
-    if (!confirm(`備份檔內有 ${data.snapshots.length} 筆紀錄。匯入會取代目前所有資料，確定嗎？`)) return;
-    state = data;
-    selected = latest().date;
-    await Storage.save(state);
+    if (!confirm(`備份檔內有 ${data.snapshots.length} 筆紀錄。要匯入到雲端嗎？同一天的紀錄會被備份檔取代，其他天不受影響，家人也會看到。`)) return;
+    await Storage.saveMany(data.snapshots);
+    await refresh(false);
+    selected = data.snapshots[data.snapshots.length - 1].date;
     render();
   } catch (err) {
-    alert("這不是有效的備份檔，資料沒有被更動。");
+    alert("匯入失敗，資料沒有被更動：" + (err && err.message === "empty" ? "這不是有效的備份檔。" : errText(err)));
   }
 }
 

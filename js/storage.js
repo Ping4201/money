@@ -1,13 +1,11 @@
-// 儲存層：app.js 只透過 load／save／normalize 存取資料。
-// 目前存在瀏覽器 localStorage；之後串雲端（Firebase／Supabase）時，
-// 只要把 load／save 改成呼叫雲端 API，其他程式都不用動。
+// 儲存層：app.js 只透過這裡存取資料（登入、讀取、寫入、刪除）。
+// 資料存在 Supabase 雲端資料庫，由資料庫的權限規則（RLS）保護，
+// 沒登入或不在家人名單的人讀不到任何資料。
 //
 // 資料格式 v2：依日期的「快照」，每次記錄一份當天的資產負債。
 // { version: 2, snapshots: [ { date, note, entries: [ { id, name, kind, category, value, cost, monthly } ] } ] }
 //   value = 現值（元）　cost = 成本（元，可空）　monthly = 每月投入／還款（元，可空）
 const Storage = {
-  KEY: "piggy-assets-v2",
-  OLD_KEY: "piggy-assets-v1",
   MAX_AMOUNT: 1e12, // 單筆金額上限：一兆
 
   localDate(d = new Date()) {
@@ -56,26 +54,48 @@ const Storage = {
     return { version: 2, snapshots: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)) };
   },
 
-  async load() {
-    let raw = null;
-    try {
-      raw = localStorage.getItem(this.KEY);
-      if (raw) return this.normalize(JSON.parse(raw));
-      const old = localStorage.getItem(this.OLD_KEY); // 舊版資料自動搬過來
-      if (old) return this.normalize(JSON.parse(old));
-    } catch (e) {
-      // 資料損毀：先把原始內容另存一份，避免之後被新資料覆蓋而無法搶救
-      try { localStorage.setItem(this.KEY + "-corrupt-backup", raw); } catch (_) {}
-      alert("偵測到本機資料損毀，已為你保留一份原始備份並重新開始。");
-    }
-    return { version: 2, snapshots: [] };
+  /* ---------- 雲端（Supabase）：登入 + 讀寫 ---------- */
+  client: null,
+
+  init() {
+    this.client = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+    return this.client;
   },
 
-  async save(data) {
-    try {
-      localStorage.setItem(this.KEY, JSON.stringify(data));
-    } catch (e) {
-      alert("儲存失敗，瀏覽器可能封鎖了本機儲存。");
-    }
+  async getUser() {
+    const { data } = await this.client.auth.getSession();
+    return data.session ? data.session.user : null;
+  },
+
+  async signIn(email, password) {
+    const { error } = await this.client.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  },
+
+  async signOut() {
+    await this.client.auth.signOut();
+  },
+
+  async load() {
+    const { data, error } = await this.client.from("snapshots").select("date, note, entries").order("date");
+    if (error) throw error;
+    return this.normalize({ snapshots: data });
+  },
+
+  // 只寫「有變動的那一天」，避免兩個人同時使用時互相覆蓋對方的資料
+  async saveSnapshot(snap) {
+    const { error } = await this.client.from("snapshots").upsert({ date: snap.date, note: snap.note, entries: snap.entries });
+    if (error) throw error;
+  },
+
+  async saveMany(snaps) {
+    const rows = snaps.map((s) => ({ date: s.date, note: s.note, entries: s.entries }));
+    const { error } = await this.client.from("snapshots").upsert(rows);
+    if (error) throw error;
+  },
+
+  async deleteSnapshot(date) {
+    const { error } = await this.client.from("snapshots").delete().eq("date", date);
+    if (error) throw error;
   }
 };
