@@ -25,11 +25,12 @@ body {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   max-width: 960px; margin: 0 auto; padding: 28px 20px 12px;
 }
-.top > div { flex: 1; min-width: 180px; }
+.top > div:not(.top-actions) { flex: 1; min-width: 180px; }
 .logo { width: 64px; height: 64px; }
 h1 { margin: 0; font-size: 1.6rem; font-weight: 500; letter-spacing: .08em; }
 .sub { margin: 0; color: var(--accent); font-family: "Jost", sans-serif; font-size: .8rem; letter-spacing: .25em; }
-main { max-width: 960px; margin: 0 auto; padding: 8px 20px 40px; display: grid; gap: 20px; }
+main { max-width: 960px; margin: 0 auto; padding: 8px 20px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+main > *, .charts > *, .cards > * { min-width: 0; }
 
 .btn {
   border: 1.5px solid var(--accent); background: transparent; color: var(--accent);
@@ -41,7 +42,7 @@ main { max-width: 960px; margin: 0 auto; padding: 8px 20px 40px; display: grid; 
 .btn.primary { background: var(--accent); color: #fff; }
 .btn.primary:hover { background: #a82a00; }
 
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 14px; }
 .card {
   background: var(--card); border-radius: var(--radius); padding: 20px 22px;
   display: flex; flex-direction: column; gap: 2px;
@@ -64,7 +65,8 @@ main { max-width: 960px; margin: 0 auto; padding: 8px 20px 40px; display: grid; 
 .legend.inline { grid-auto-flow: column; justify-content: center; gap: 6px 16px; display: flex; flex-wrap: wrap; }
 .item .info small b { font-weight: 500; }
 
-.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+#snapNote2 { overflow-wrap: anywhere; }
 .panel { background: var(--card); border-radius: var(--radius); padding: 24px; }
 .panel h2 { margin: 0 0 14px; font-size: .95rem; font-weight: 500; color: var(--accent); }
 .chart svg { width: 100%; height: auto; display: block; }
@@ -138,14 +140,63 @@ dialog p { margin: 0 0 12px; }
 .ehead { font-size: .75rem; color: var(--muted); letter-spacing: .08em; margin-bottom: 2px; }
 .r-del { color: var(--muted); }
 
+/* 編輯視窗每個欄位的標籤：桌面版由表頭顯示，手機版每格自己顯示 */
+.erow .fld { display: block; margin: 0; font-size: .72rem; color: var(--muted); letter-spacing: .04em; }
+.erow .fld > span { display: none; }
+
 @media (max-width: 640px) {
-  .charts { grid-template-columns: 1fr; }
-  .top-actions { width: 100%; }
-  .top-actions .btn.primary { flex: 1; }
-  .snapbtns { margin-left: 0; }
+  :root { --radius: 22px; }
+  .top { padding: 18px 16px 8px; gap: 12px; }
+  .top > div:not(.top-actions) { min-width: 0; }
+  .logo { width: 48px; height: 48px; }
+  h1 { font-size: 1.35rem; }
+  .sub { font-size: .7rem; }
+  .top-actions { flex: 1 1 100%; }
+  .top-actions .btn.primary { flex: 1; padding: 12px 16px; }
+  main { padding: 6px 16px 28px; gap: 14px; }
+
+  /* 總覽卡片：2×2，比單欄省一半高度 */
+  .cards { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card { padding: 14px 14px; }
+  .card strong { font-size: 1.2rem; }
+  .card span { font-size: .72rem; letter-spacing: .08em; }
+  .card small { font-size: .72rem; }
+
+  /* 日期列：選單與筆數同一行，按鈕各佔一半 */
+  .snapbar { gap: 8px 12px; }
+  .snapbar select { padding: 10px 12px; }
+  .snapbar .muted { font-size: .8rem; }
+  #snapNote2 { flex-basis: 100%; }
+  .snapbtns { margin-left: 0; width: 100%; }
+  .snapbtns .btn { flex: 1; }
+  .btn.small { padding: 10px 14px; }
+
+  .panel { padding: 18px 16px; }
+  .charts { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .legend { font-size: .84rem; }
+  .legend em { font-size: .8rem; }
+
+  /* 明細：數字不被擠壓，標籤文字可換行 */
+  .tabs button { padding: 8px 16px; }
+  .item { gap: 10px; padding: 12px 0; }
+  .dot { width: 38px; height: 38px; font-size: 1rem; }
+  .info small { display: block; line-height: 1.5; }
+  .amt { font-size: .95rem; }
+
+  .backup { margin: 0 16px 16px; padding: 16px; }
+  .backup div { width: 100%; }
+  .backup .btn { flex: 1; padding: 12px 14px; }
+
+  /* 編輯視窗：幾乎滿版，欄位有固定標籤，儲存鈕固定在下方 */
+  dialog.wide { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; padding: 18px 16px 0; }
   .dlg-top { grid-template-columns: 1fr; }
   .ehead { display: none; }
-  .erow { grid-template-columns: 1fr 1fr 1fr; padding: 10px 0; border-bottom: 1px dashed var(--line); }
-  .erow .r-name { grid-column: span 2; }
-  .erow .r-del { justify-self: end; }
+  .erow { grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 12px 0; border-bottom: 1px dashed var(--line); }
+  .erow .fld > span { display: block; margin-bottom: 2px; }
+  .erow .fld.f-name { grid-column: span 2; }
+  .erow input, .erow select { font-size: 16px; padding: 10px 10px; } /* 16px 以上，iPhone 才不會自動放大畫面 */
+  dialog input, dialog select { font-size: 16px; }
+  .erow .r-del { grid-column: 3; justify-self: end; align-self: end; min-height: 40px; min-width: 40px; }
+  dialog.wide .actions { position: sticky; bottom: 0; margin: 12px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); }
+  dialog.wide .actions .btn { flex: 1; padding: 12px 16px; }
 }

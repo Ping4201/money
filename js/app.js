@@ -1,4 +1,4 @@
-﻿// 常用分類（只是建議，輸入框也可以自己打新分類）
+// 常用分類（只是建議，輸入框也可以自己打新分類）
 const ASSET_CATS = ["存款", "台股", "美股", "虛擬幣", "極星", "其他"];
 const DEBT_CATS = ["房貸", "車貸", "信貸", "其他負債"];
 const CAT_COLORS = {
@@ -77,6 +77,7 @@ async function enterApp() {
   try {
     await refresh(false);
     $("app").hidden = $("backup").hidden = $("topActions").hidden = false;
+    render(); // 畫面顯示後重畫一次，圖表才量得到正確寬度
     setStatus("");
     await autoCatchUp();
   } catch (e) {
@@ -189,6 +190,17 @@ function bindEvents() {
   $("exportBtn").onclick = exportBackup;
   $("importBtn").onclick = () => $("importFile").click();
   $("importFile").onchange = importBackup;
+  // 旋轉手機或調整視窗大小時，圖表依新寬度重畫
+  let resizeTimer, lastW = window.innerWidth;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (window.innerWidth === lastW || $("app").hidden) return; // 手機網址列伸縮只改高度，略過
+      lastW = window.innerWidth;
+      renderTrend();
+      renderStack();
+    }, 200);
+  });
   // 編輯視窗
   $("addRowBtn").onclick = () => addRow({});
   $("rows").onclick = (e) => { const b = e.target.closest(".r-del"); if (b) b.closest(".erow").remove(); };
@@ -199,14 +211,15 @@ function bindEvents() {
 /* ---------- 編輯視窗：新增／修改一份快照 ---------- */
 function rowHtml(e) {
   const sel = (k) => (e.kind === k || (!e.kind && k === "asset") ? "selected" : "");
+  // 每個欄位包在 label 裡：手機版顯示標籤文字（桌面版由表頭顯示，label 文字隱藏）
   return `<div class="erow">
-    <select class="r-kind" aria-label="類型"><option value="asset" ${sel("asset")}>資產</option><option value="debt" ${sel("debt")}>負債</option></select>
-    <input class="r-name" maxlength="30" placeholder="名稱" aria-label="名稱" value="${esc(e.name || "")}">
-    <input class="r-cat" list="catList" maxlength="12" placeholder="分類" aria-label="分類" value="${esc(e.category || "")}">
-    <input class="r-val" type="number" min="0" step="any" inputmode="decimal" placeholder="現值（萬）" aria-label="現值（萬）" value="${wan(e.value)}">
-    <input class="r-cost" type="number" min="0" step="any" inputmode="decimal" placeholder="成本（萬）" aria-label="成本（萬，選填）" value="${wan(e.cost)}">
-    <input class="r-rate" type="number" min="0" max="100" step="any" inputmode="decimal" placeholder="年利率（%）" aria-label="貸款年利率（%，選填，填了才會每月5號自動推算）" value="${e.rate === null || e.rate === undefined ? "" : e.rate}">
-    <input class="r-mon" type="number" min="0" step="1" inputmode="numeric" placeholder="每月（元）" aria-label="每月投入或還款（元，選填）" value="${e.monthly === null || e.monthly === undefined ? "" : e.monthly}">
+    <label class="fld"><span>類型</span><select class="r-kind"><option value="asset" ${sel("asset")}>資產</option><option value="debt" ${sel("debt")}>負債</option></select></label>
+    <label class="fld f-name"><span>名稱</span><input class="r-name" maxlength="30" placeholder="名稱" value="${esc(e.name || "")}"></label>
+    <label class="fld"><span>分類</span><input class="r-cat" list="catList" maxlength="12" placeholder="分類" value="${esc(e.category || "")}"></label>
+    <label class="fld"><span>現值（萬）</span><input class="r-val" type="number" min="0" step="any" inputmode="decimal" placeholder="現值（萬）" value="${wan(e.value)}"></label>
+    <label class="fld"><span>成本（萬）</span><input class="r-cost" type="number" min="0" step="any" inputmode="decimal" placeholder="成本（萬）" value="${wan(e.cost)}"></label>
+    <label class="fld"><span>年利率（%）</span><input class="r-rate" type="number" min="0" max="100" step="any" inputmode="decimal" placeholder="年利率（%）" title="貸款才需要；填了年利率和每月還款，每月 5 號會自動推算剩餘負債" value="${e.rate === null || e.rate === undefined ? "" : e.rate}"></label>
+    <label class="fld"><span>每月（元）</span><input class="r-mon" type="number" min="0" step="1" inputmode="numeric" placeholder="每月（元）" value="${e.monthly === null || e.monthly === undefined ? "" : e.monthly}"></label>
     <button type="button" class="icon-btn r-del" aria-label="刪除這一列">✕</button>
   </div>`;
 }
@@ -392,16 +405,31 @@ function renderDonut(snap) {
     `<li><i style="background:${catColor(c.name)}"></i>${esc(c.name)}<em>${((c.value / total) * 100).toFixed(1)}%・${fmt(c.value)}</em></li>`).join("");
 }
 
+// 圖表畫布大小跟著容器寬度走：這樣手機上文字不會被縮到看不清楚
+function chartSize(id) {
+  const cw = $(id).clientWidth;
+  const W = cw >= 260 ? Math.min(Math.round(cw), 900) : 560;
+  return { W, H: Math.min(Math.round(W * (W < 420 ? 0.72 : 0.56)), 320) };
+}
+
 // 圖表共用：y 軸刻度與格線
-function yAxis(min, max, W, H, P) {
+// 刻度取整齊的值（10、20、25、50、100、200…萬），最多約 5 格，而不是 832、478 這種怪數字
+function niceScale(min, max) {
+  const steps = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000].map((x) => x * 10000);
+  const step = steps.find((s) => (max - min) / s <= 5) || 1e8;
+  const lo = Math.floor(min / step) * step;
+  const hi = Math.ceil(max / step) * step;
+  return { min: lo, max: hi === lo ? lo + step : hi, step };
+}
+
+function yAxis(min, max, step, W, H, P) {
   let out = "";
-  for (let i = 0; i <= 4; i++) {
-    const v = min + ((max - min) * i) / 4;
+  for (let v = min; v <= max + 1; v += step) {
     const y = H - P.b - ((v - min) / (max - min)) * (H - P.t - P.b);
-    out += `<line x1="${P.l}" x2="${W - P.r}" y1="${y}" y2="${y}" stroke="#e4dcd5" stroke-width="1"/>
-      <text x="${P.l - 6}" y="${y + 3}" font-size="13" fill="#6f655f" text-anchor="end">${Math.round(v / 10000)}</text>`;
+    out += `<line x1="${P.l}" x2="${W - P.r}" y1="${y}" y2="${y}" stroke="${v === 0 ? "#b9ada5" : "#e4dcd5"}" stroke-width="1"/>
+      <text x="${P.l - 6}" y="${y + 4}" font-size="11" fill="#6f655f" text-anchor="end">${Math.round(v / 10000)}</text>`;
   }
-  return out + `<text x="${P.l - 6}" y="${P.t - 4}" font-size="13" fill="#6f655f" text-anchor="end">萬</text>`;
+  return out + `<text x="2" y="${P.t - 12}" font-size="11" fill="#6f655f" text-anchor="start">單位：萬</text>`;
 }
 const shortDate = (d) => d.slice(2, 7).replace("-", "/");
 
@@ -412,11 +440,11 @@ function renderTrend() {
     $("trendLegend").innerHTML = "";
     return;
   }
-  const W = 560, H = 250, P = { l: 52, r: 14, t: 20, b: 30 };
+  const { W, H } = chartSize("trend"), P = { l: 42, r: 12, t: 28, b: 28 };
   const data = snaps.map((s) => ({ date: s.date, t: Date.parse(s.date), ...totals(s) }));
   const t0 = data[0].t, t1 = data[data.length - 1].t;
   const all = data.flatMap((d) => [d.asset, d.debt, d.net, 0]);
-  const min = Math.min(...all), max = Math.max(...all);
+  const { min, max, step } = niceScale(Math.min(...all), Math.max(...all));
   const x = (t) => P.l + ((t - t0) / (t1 - t0 || 1)) * (W - P.l - P.r);
   const y = (v) => H - P.b - ((v - min) / (max - min || 1)) * (H - P.t - P.b);
   const series = [["asset", "#5f8a63", "總資產"], ["debt", "#cc3300", "總負債"], ["net", "#222222", "淨資產"]];
@@ -430,9 +458,9 @@ function renderTrend() {
   const marker = sel ? `<line x1="${x(sel.t)}" x2="${x(sel.t)}" y1="${P.t}" y2="${H - P.b}" stroke="#cc3300" stroke-dasharray="4 3" stroke-width="1.2"/>` : "";
   const ticks = [0, 1 / 3, 2 / 3, 1].map((f) => {
     const t = t0 + (t1 - t0) * f, nearest = data.reduce((a, d) => (Math.abs(d.t - t) < Math.abs(a.t - t) ? d : a));
-    return `<text x="${x(nearest.t)}" y="${H - 9}" font-size="13" fill="#6f655f" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${shortDate(nearest.date)}</text>`;
+    return `<text x="${x(nearest.t)}" y="${H - 8}" font-size="11" fill="#6f655f" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${shortDate(nearest.date)}</text>`;
   }).join("");
-  $("trend").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="資產負債趨勢圖">${yAxis(min, max, W, H, P)}${marker}${lines}${dots}${ticks}</svg>`;
+  $("trend").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="資產負債趨勢圖">${yAxis(min, max, step, W, H, P)}${marker}${lines}${dots}${ticks}</svg>`;
   $("trendLegend").innerHTML = series.map(([, col, label]) => `<li><i style="background:${col}"></i>${label}</li>`).join("");
 }
 
@@ -444,8 +472,8 @@ function renderStack() {
     $("stackLegend").innerHTML = "";
     return;
   }
-  const W = 560, H = 250, P = { l: 52, r: 14, t: 20, b: 30 };
-  const max = Math.max(...snaps.map((s) => totals(s).asset)) || 1;
+  const { W, H } = chartSize("stack"), P = { l: 42, r: 12, t: 28, b: 28 };
+  const { max, step } = niceScale(0, Math.max(...snaps.map((s) => totals(s).asset)) || 1);
   const slot = (W - P.l - P.r) / snaps.length, bw = Math.min(26, slot * 0.7);
   const y = (v) => H - P.b - (v / max) * (H - P.t - P.b);
   const bars = snaps.map((s, i) => {
@@ -463,9 +491,9 @@ function renderStack() {
   }).join("");
   const ticks = [0, 1 / 3, 2 / 3, 1].map((f) => {
     const i = Math.round((snaps.length - 1) * f);
-    return `<text x="${P.l + slot * (i + 0.5)}" y="${H - 9}" font-size="13" fill="#6f655f" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${shortDate(snaps[i].date)}</text>`;
+    return `<text x="${P.l + slot * (i + 0.5)}" y="${H - 8}" font-size="11" fill="#6f655f" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${shortDate(snaps[i].date)}</text>`;
   }).join("");
-  $("stack").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="資產分布變化圖">${yAxis(0, max, W, H, P)}${bars}${ticks}</svg>`;
+  $("stack").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="資產分布變化圖">${yAxis(0, max, step, W, H, P)}${bars}${ticks}</svg>`;
   $("stackLegend").innerHTML = cats.map((c) => `<li><i style="background:${catColor(c)}"></i>${esc(c)}</li>`).join("");
 }
 
